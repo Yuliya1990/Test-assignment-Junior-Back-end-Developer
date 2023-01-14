@@ -14,6 +14,7 @@ builder.Services.AddHttpClient("RickAndMorty", httpClient =>
     // Add an Accept header for JSON format.
     httpClient.DefaultRequestHeaders.Add(HeaderNames.Accept, "application/json");
 });
+builder.Services.AddMemoryCache();
 
 var app = builder.Build();
 

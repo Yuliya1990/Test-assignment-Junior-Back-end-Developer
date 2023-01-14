@@ -7,6 +7,7 @@ using TestProject.Models;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Linq;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace TestProject.Controllers
 {
@@ -15,10 +16,12 @@ namespace TestProject.Controllers
     public class V1 : ControllerBase
     {
         private readonly IHttpClientFactory _httpClientFactory;
+        private IMemoryCache _cache;
 
-        public V1(IHttpClientFactory httpClientFactory)
+        public V1(IHttpClientFactory httpClientFactory, IMemoryCache memoryCache)
         {
             _httpClientFactory = httpClientFactory;
+            _cache = memoryCache;
         }
 
         // POST: api/v1/check-person
@@ -28,9 +31,20 @@ namespace TestProject.Controllers
             var httpClient = _httpClientFactory.CreateClient("RickAndMorty");
             try
             {
-                var responseCharacter = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>($"api/character/?name={personName}");
-                var responseEpisode = await httpClient.GetFromJsonAsync<MultipleResonseEpisode>($"api/episode/?name={episodeName}");
-
+                MultipleResponseCharacter responseCharacter = new MultipleResponseCharacter();
+                MultipleResonseEpisode responseEpisode = new MultipleResonseEpisode();
+                if (!_cache.TryGetValue(personName, out responseCharacter))
+                {
+                    responseCharacter = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>($"api/character/?name={personName}");
+                    _cache.Set(personName, responseCharacter,
+                    new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromMinutes(2)));
+                }
+                if (!_cache.TryGetValue(episodeName, out responseEpisode))
+                {
+                    responseEpisode = await httpClient.GetFromJsonAsync<MultipleResonseEpisode>($"api/episode/?name={episodeName}");
+                    _cache.Set(episodeName, responseEpisode,
+                    new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromMinutes(2)));
+                }
                 //надо пройтись циклом по каждому персонажу. Пройтись циклом по каждому эпизоду.
                 //И проверить, есть ли у персонажа хотя бы одна ссылка на эпизод, что совпадает хотя бы с одним url из массива епизодов
 
@@ -75,7 +89,13 @@ namespace TestProject.Controllers
             var httpClient = _httpClientFactory.CreateClient("RickAndMorty");
             try
             {
-                var response = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>($"api/character/?name={name}");
+                MultipleResponseCharacter response = new MultipleResponseCharacter();
+                if (!_cache.TryGetValue(name, out response))
+                {
+                    response = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>($"api/character/?name={name}");
+                    _cache.Set(name, response,
+                    new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromMinutes(2)));
+                }
                 string locationsUrl = GetUrlLocations(response.Characters);
                 if (locationsUrl != "")
                 {
