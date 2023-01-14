@@ -25,7 +25,7 @@ namespace TestProject.Models
         [JsonPropertyName("image")]
         public string Image { get; set; }
         [JsonPropertyName("episode")]
-        public string[] Episode { get; set; }
+        public List<string> Episodes { get; set; }
         [JsonPropertyName("url")]
         public string Url { get; set; }
         [JsonPropertyName("created")]

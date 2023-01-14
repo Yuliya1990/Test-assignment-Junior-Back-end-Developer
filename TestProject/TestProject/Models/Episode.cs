@@ -13,7 +13,7 @@ namespace TestProject.Models
         [JsonPropertyName("episode")]
         public string EpisodeCode { get; set; }
         [JsonPropertyName("characters")]
-        public string[] Characters { get; set; }
+        public List<string> Characters { get; set; }
         [JsonPropertyName("url")]
         public string Url { get; set; }
         [JsonPropertyName("created")]

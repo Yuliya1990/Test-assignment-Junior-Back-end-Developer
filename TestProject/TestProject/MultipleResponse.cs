@@ -13,4 +13,10 @@ namespace TestProject
         [JsonPropertyName("results")]
         public List<Character> Characters { get; set; }
     }
+
+    class MultipleResonseEpisode : MultipleResponse
+    {
+        [JsonPropertyName("results")]
+        public List<Episode> Episodes { get; set; }
+    }
 }

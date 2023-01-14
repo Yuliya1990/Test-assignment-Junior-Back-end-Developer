@@ -21,39 +21,51 @@ namespace TestProject.Controllers
             _httpClientFactory = httpClientFactory;
         }
 
-        // GET: api/v1/first-character
-        [HttpGet("first-character")]
-        public async Task<Character> GetFirstCharacter()
-        {
-            var httpClient = _httpClientFactory.CreateClient("RickAndMorty");
-            try
-            {
-                return await httpClient.GetFromJsonAsync<Character>("/api/character/1");
-            }
-            catch (HttpRequestException) // Non success
-            {
-                Console.WriteLine("An error occurred.");
-            }
-            catch (NotSupportedException) // When content type is not valid
-            {
-                Console.WriteLine("The content type is not supported.");
-            }
-            catch (System.Text.Json.JsonException) // Invalid JSON
-            {
-                Console.WriteLine("Invalid JSON.");
-            }
-
-            return null;
-        }
         // POST: api/v1/check-person
         [HttpPost("check-person")]
         public async Task<IActionResult> CheckPerson(string personName, string episodeName)
         {
-            //does the person exist in this episode?
-            //можна знайти цього персонажа по імені.
-            //Далі зібрати всі URL епізодів, в яких цей персонаж зустрічається і запхати ці url в масив.
-            //пройтися по массиву і зробити get запит до кожного епізоду. Як тільки знайдемо з потрібним іменем - повертаємо true
-            return Ok();
+            var httpClient = _httpClientFactory.CreateClient("RickAndMorty");
+            try
+            {
+                var responseCharacter = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>($"api/character/?name={personName}");
+                var responseEpisode = await httpClient.GetFromJsonAsync<MultipleResonseEpisode>($"api/episode/?name={episodeName}");
+
+                //надо пройтись циклом по каждому персонажу. Пройтись циклом по каждому эпизоду.
+                //И проверить, есть ли у персонажа хотя бы одна ссылка на эпизод, что совпадает хотя бы с одним url из массива епизодов
+
+                //выбрать такого персонажа, у которого будет нужная нам ссылка
+
+                   var a = (from c in responseCharacter.Characters
+                            where responseEpisode.Episodes.Any(e =>
+                            {
+                                foreach (string ep in c.Episodes)
+                                {
+                                    if (ep == e.Url)
+                                        return true;
+                                }
+                                return false;
+                            })
+                            select c).ToList();
+
+                   if (a.Count != 0)
+                       return Ok(true);
+                return Ok(false);
+                        
+            }
+            catch (HttpRequestException) // Non success
+            {
+                return BadRequest("An error occurred.");
+            }
+            catch (NotSupportedException) // When content type is not valid
+            {
+                return BadRequest("The content type is not supported.");
+            }
+            catch (System.Text.Json.JsonException) // Invalid JSON
+            {
+                return BadRequest("Invalid JSON.");
+            }
+            return null;
         }
 
         //GET: api/v1/person?name=person
@@ -174,9 +186,3 @@ namespace TestProject.Controllers
 }
 
 
-/*var response = await httpClient.GetAsync($"/api/character/?name={name}");
-var json = await response.Content.ReadAsStringAsync();
-var jsonParsed = JsonDocument.Parse(json);
-var results = jsonParsed.RootElement.GetProperty("results");
-var resultsInJson = JsonSerializer.Serialize(results);
-var characters = JsonSerializer.Deserialize<List<Character>>(resultsInJson.ToString());*/
