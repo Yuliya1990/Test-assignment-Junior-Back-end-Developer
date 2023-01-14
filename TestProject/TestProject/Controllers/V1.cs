@@ -1,11 +1,12 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Newtonsoft.Json;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
 using TestProject.Models;
-
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Linq;
 
 namespace TestProject.Controllers
 {
@@ -19,17 +20,30 @@ namespace TestProject.Controllers
         {
             _httpClientFactory = httpClientFactory;
         }
-        
-        // GET: api/v1/characters
+
+        // GET: api/v1/first-character
         [HttpGet("first-character")]
-        public async Task<IActionResult> GetFirstCharacter()
+        public async Task<Character> GetFirstCharacter()
         {
             var httpClient = _httpClientFactory.CreateClient("RickAndMorty");
-            var httpResponseMessage = httpClient.GetAsync("/api/character/1").Result;
-            var json = httpResponseMessage.Content.ReadAsStringAsync().Result;
-            //using Newtonsoft.Json
-            var character = JsonConvert.DeserializeObject<Character>(json);
-            return Ok(character);
+            try
+            {
+                return await httpClient.GetFromJsonAsync<Character>("/api/character/1");
+            }
+            catch (HttpRequestException) // Non success
+            {
+                Console.WriteLine("An error occurred.");
+            }
+            catch (NotSupportedException) // When content type is not valid
+            {
+                Console.WriteLine("The content type is not supported.");
+            }
+            catch (System.Text.Json.JsonException) // Invalid JSON
+            {
+                Console.WriteLine("Invalid JSON.");
+            }
+
+            return null;
         }
         // POST: api/v1/check-person
         [HttpPost("check-person")]
@@ -46,63 +60,123 @@ namespace TestProject.Controllers
         [HttpGet("person")]
         public async Task<IActionResult> GetPerson(string name)
         {
-            return Ok();
+            var httpClient = _httpClientFactory.CreateClient("RickAndMorty");
+            try
+            {
+                var response = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>($"api/character/?name={name}");
+                string locationsUrl = GetUrlLocations(response.Characters);
+                if (locationsUrl != "")
+                {
+                    var origins = await httpClient.GetFromJsonAsync<List<Location>>(locationsUrl);
+                    var union = UnionCharactersAndLocations(response.Characters, origins);
+                    var result = (from c in union
+                                  select new
+                                  {
+                                      Name = c.Name,
+                                      Status = c.Status,
+                                      Species = c.Species,
+                                      Type = c.Type,
+                                      Gender = c.Gender,
+                                      Origin = new
+                                      {
+                                          Name = c.Origin.Name,
+                                          Type = c.Origin.Type,
+                                          Dimension = c.Origin.Dimension
+                                      }
+                                  }).ToList();
+                    return Ok(result);
+                  
+                }
+                else { 
+                        var result = (from c in response.Characters
+                        select new
+                        {
+                            Name = c.Name,
+                            Status = c.Status,
+                            Species = c.Species,
+                            Type = c.Type,
+                            Gender = c.Gender,
+                            Origin = new
+                            {
+                                Name = c.Origin.Name,
+                                Type = c.Origin.Type,
+                                Dimension = c.Origin.Dimension
+                            }
+                        }).ToList();
+                    return Ok(result);
+                };
+            }
+            catch (HttpRequestException) // Non success
+            {
+                return BadRequest("An error occurred.");
+            }
+            catch (NotSupportedException) // When content type is not valid
+            {
+                return BadRequest("The content type is not supported.");
+            }
+            catch (System.Text.Json.JsonException) // Invalid JSON
+            {
+                return BadRequest("Invalid JSON.");
+            }
+             return null;
+        }
+
+        private string GetUrlLocations(List<Character> characters)
+        {
+            string filter = "api/location/";
+            List<string> LocationIDs = new List<string>();
+            foreach (Character character in characters)
+            {
+                if (character.Origin.Url != "")
+                {
+                    string locationId = Regex.Match(character.Origin.Url, @"\d+").Value;
+                    LocationIDs.Add(locationId);
+                }
+                
+            }
+            if (LocationIDs.Count != 0)
+            {
+                filter += String.Join(',', LocationIDs);
+                return filter;
+            }
+            else return ("");
+        }
+
+        private List<Character> UnionCharactersAndLocations(List<Character> characters, List<Location> origins)
+        {
+            var joinedCharacterswithOrigins = (from c in characters
+                                               join o in origins on c.Origin.Url equals o.Url
+                                               select new Character
+                                               {
+                                                   Id = c.Id,
+                                                   Name = c.Name,
+                                                   Status = c.Status,
+                                                   Species = c.Species,
+                                                   Type = c.Type,
+                                                   Gender = c.Gender,
+                                                   Origin = new Location
+                                                   {
+                                                       Id = o.Id,
+                                                       Name = o.Name,
+                                                       Type = o.Type,
+                                                       Dimension = o.Dimension
+                                                   }
+                                               }).ToList();
+
+            var except = from c in characters
+                         where !joinedCharacterswithOrigins.Any(j => j.Id == c.Id)
+                         select c;
+
+            joinedCharacterswithOrigins.AddRange(except);
+            return joinedCharacterswithOrigins;
         }
     }
-
 }
 
 
-/*public class Rootobject
-{
-    public Info info { get; set; }
-    public Result[] results { get; set; }
-}
-
-public class Info
-{
-    public int count { get; set; }
-    public int pages { get; set; }
-    public string next { get; set; }
-    public object prev { get; set; }
-}
-
-public class Result
-{
-    public int id { get; set; }
-    public string name { get; set; }
-    public string status { get; set; }
-    public string species { get; set; }
-    public string type { get; set; }
-    public string gender { get; set; }
-    public Origin origin { get; set; }
-    public Location location { get; set; }
-    public string image { get; set; }
-    public string[] episode { get; set; }
-    public string url { get; set; }
-    public DateTime created { get; set; }
-}
-
-public class Origin
-{
-    public string name { get; set; }
-    public string url { get; set; }
-}
-
-public class Location
-{
-    public string name { get; set; }
-    public string url { get; set; }
-}
-
-public class Rootobject
-{
-    public int id { get; set; }
-    public string name { get; set; }
-    public string air_date { get; set; }
-    public string episode { get; set; }
-    public string[] characters { get; set; }
-    public string url { get; set; }
-    public DateTime created { get; set; }
-}*/
-
+/*var response = await httpClient.GetAsync($"/api/character/?name={name}");
+var json = await response.Content.ReadAsStringAsync();
+var jsonParsed = JsonDocument.Parse(json);
+var results = jsonParsed.RootElement.GetProperty("results");
+var resultsInJson = JsonSerializer.Serialize(results);
+var characters = JsonSerializer.Deserialize<List<Character>>(resultsInJson.ToString());*/
