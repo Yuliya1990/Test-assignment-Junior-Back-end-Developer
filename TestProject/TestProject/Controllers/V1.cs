@@ -29,47 +29,35 @@ namespace TestProject.Controllers
         public async Task<IActionResult> CheckPerson(string personName, string episodeName)
         {
             var httpClient = _httpClientFactory.CreateClient("RickAndMorty");
+            List<Character> characters = new List<Character>();
+            List<Episode> episodes = new List<Episode>();
             try
             {
                 MultipleResponseCharacter responseCharacter = new MultipleResponseCharacter();
                 MultipleResonseEpisode responseEpisode = new MultipleResonseEpisode();
-                if (!_cache.TryGetValue(personName, out responseCharacter))
+
+                responseCharacter = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>($"api/character/?name={personName}");
+                characters.AddRange(responseCharacter.Characters);
+                while (responseCharacter.Info.Next != null)
                 {
-                    responseCharacter = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>($"api/character/?name={personName}");
-                    _cache.Set(personName, responseCharacter,
-                    new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromMinutes(2)));
+                    responseCharacter = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>(responseCharacter.Info.Next);
+                    characters.AddRange(responseCharacter.Characters);
                 }
-                if (!_cache.TryGetValue(episodeName, out responseEpisode))
+                
+                responseEpisode = await httpClient.GetFromJsonAsync<MultipleResonseEpisode>($"api/episode/?name={episodeName}");
+                episodes.AddRange(responseEpisode.Episodes);
+                while (responseEpisode.Info.Next != null)
                 {
-                    responseEpisode = await httpClient.GetFromJsonAsync<MultipleResonseEpisode>($"api/episode/?name={episodeName}");
-                    _cache.Set(episodeName, responseEpisode,
-                    new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromMinutes(2)));
+                    responseEpisode = await httpClient.GetFromJsonAsync<MultipleResonseEpisode>(responseEpisode.Info.Next);
+                    episodes.AddRange(responseEpisode.Episodes);
                 }
-                //надо пройтись циклом по каждому персонажу. Пройтись циклом по каждому эпизоду.
-                //И проверить, есть ли у персонажа хотя бы одна ссылка на эпизод, что совпадает хотя бы с одним url из массива епизодов
 
-                //выбрать такого персонажа, у которого будет нужная нам ссылка
-
-                   var a = (from c in responseCharacter.Characters
-                            where responseEpisode.Episodes.Any(e =>
-                            {
-                                foreach (string ep in c.Episodes)
-                                {
-                                    if (ep == e.Url)
-                                        return true;
-                                }
-                                return false;
-                            })
-                            select c).ToList();
-
-                   if (a.Count != 0)
-                       return Ok(true);
-                return Ok(false);
-                        
+                bool isCharacterInEpisode = DataHandler.IsCharacterInTheEpisode(characters, episodes);
+                return Ok(isCharacterInEpisode);
             }
-            catch (HttpRequestException) // Non success
+            catch (HttpRequestException)
             {
-                return BadRequest("An error occurred.");
+                return StatusCode(StatusCodes.Status404NotFound);
             }
             catch (NotSupportedException) // When content type is not valid
             {
@@ -90,57 +78,57 @@ namespace TestProject.Controllers
             try
             {
                 MultipleResponseCharacter response = new MultipleResponseCharacter();
-                if (!_cache.TryGetValue(name, out response))
+                response = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>($"api/character/?name={name}");
+                   
+                //якщо у нас один персонаж
+                if (response.Info.Count == 1)
                 {
-                    response = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>($"api/character/?name={name}");
-                    _cache.Set(name, response,
-                    new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromMinutes(2)));
+                    Character character = response.Characters.First();
+                    string locationUrl = character.Origin.Url;
+                    if (locationUrl == "")
+                    {
+                        return Ok(new CharacterOriginResult(character));
+                    }
+                    else
+                    {
+                        Location origin = await httpClient.GetFromJsonAsync<Location>(locationUrl);
+                        character.Origin = origin;
+                        return Ok(new CharacterOriginResult(character));
+                    }
                 }
-                string locationsUrl = GetUrlLocations(response.Characters);
-                if (locationsUrl != "")
+                //якщо в нас багато персонажей
+                List<CharacterOriginResult> results = new List<CharacterOriginResult>();
+                List<Character> characters = new List<Character>();
+                characters.AddRange(response.Characters);
+
+                while (response.Info.Next != null)
                 {
-                    var origins = await httpClient.GetFromJsonAsync<List<Location>>(locationsUrl);
-                    var union = UnionCharactersAndLocations(response.Characters, origins);
-                    var result = (from c in union
-                                  select new
-                                  {
-                                      Name = c.Name,
-                                      Status = c.Status,
-                                      Species = c.Species,
-                                      Type = c.Type,
-                                      Gender = c.Gender,
-                                      Origin = new
-                                      {
-                                          Name = c.Origin.Name,
-                                          Type = c.Origin.Type,
-                                          Dimension = c.Origin.Dimension
-                                      }
-                                  }).ToList();
-                    return Ok(result);
-                  
+                    response = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>(response.Info.Next);
+                    characters.AddRange(response.Characters);
                 }
-                else { 
-                        var result = (from c in response.Characters
-                        select new
-                        {
-                            Name = c.Name,
-                            Status = c.Status,
-                            Species = c.Species,
-                            Type = c.Type,
-                            Gender = c.Gender,
-                            Origin = new
-                            {
-                                Name = c.Origin.Name,
-                                Type = c.Origin.Type,
-                                Dimension = c.Origin.Dimension
-                            }
-                        }).ToList();
-                    return Ok(result);
-                };
+
+                    ParseLocationURL Parser = new ParseLocationURL();
+                    List<string> OriginURLs = Parser.GetOriginUrlListFromCharacters(characters);
+                    string locationsUrl = Parser.GetNewLocationsUrl(OriginURLs);
+
+                    if (locationsUrl == "")
+                    {
+                        var result = (from c in characters
+                                      select new CharacterOriginResult(c)).ToList();
+                        return Ok(result);
+                    }
+                    else
+                    {
+                        List<Location> origins = await httpClient.GetFromJsonAsync<List<Location>>(locationsUrl);
+                        var union = DataHandler.UnionCharactersAndLocations(characters, origins);
+                        var result = (from c in union
+                                      select new CharacterOriginResult(c)).ToList();
+                        return Ok(result);
+                    }
             }
-            catch (HttpRequestException) // Non success
+            catch (HttpRequestException)
             {
-                return BadRequest("An error occurred.");
+                return StatusCode(StatusCodes.Status404NotFound);
             }
             catch (NotSupportedException) // When content type is not valid
             {
@@ -150,58 +138,10 @@ namespace TestProject.Controllers
             {
                 return BadRequest("Invalid JSON.");
             }
-             return null;
+            return Ok();
         }
 
-        private string GetUrlLocations(List<Character> characters)
-        {
-            string filter = "api/location/";
-            List<string> LocationIDs = new List<string>();
-            foreach (Character character in characters)
-            {
-                if (character.Origin.Url != "")
-                {
-                    string locationId = Regex.Match(character.Origin.Url, @"\d+").Value;
-                    LocationIDs.Add(locationId);
-                }
-                
-            }
-            if (LocationIDs.Count != 0)
-            {
-                filter += String.Join(',', LocationIDs);
-                return filter;
-            }
-            else return ("");
-        }
-
-        private List<Character> UnionCharactersAndLocations(List<Character> characters, List<Location> origins)
-        {
-            var joinedCharacterswithOrigins = (from c in characters
-                                               join o in origins on c.Origin.Url equals o.Url
-                                               select new Character
-                                               {
-                                                   Id = c.Id,
-                                                   Name = c.Name,
-                                                   Status = c.Status,
-                                                   Species = c.Species,
-                                                   Type = c.Type,
-                                                   Gender = c.Gender,
-                                                   Origin = new Location
-                                                   {
-                                                       Id = o.Id,
-                                                       Name = o.Name,
-                                                       Type = o.Type,
-                                                       Dimension = o.Dimension
-                                                   }
-                                               }).ToList();
-
-            var except = from c in characters
-                         where !joinedCharacterswithOrigins.Any(j => j.Id == c.Id)
-                         select c;
-
-            joinedCharacterswithOrigins.AddRange(except);
-            return joinedCharacterswithOrigins;
-        }
+        
     }
 }
 
