@@ -75,10 +75,6 @@ namespace TestProject.Controllers
             {
                 return BadRequest("Invalid JSON.");
             }
-            catch (Exception ex)
-            {
-                return BadRequest("what is that?");
-            }
             return null;
         }
 
