@@ -29,29 +29,37 @@ namespace TestProject.Controllers
         public async Task<IActionResult> CheckPerson(string personName, string episodeName)
         {
             var httpClient = _httpClientFactory.CreateClient("RickAndMorty");
-            List<Character> characters = new List<Character>();
-            List<Episode> episodes = new List<Episode>();
+            List<Character> characters;
+            List<Episode> episodes;
             try
             {
-                MultipleResponseCharacter responseCharacter = new MultipleResponseCharacter();
-                MultipleResonseEpisode responseEpisode = new MultipleResonseEpisode();
-
-                responseCharacter = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>($"api/character/?name={personName}");
-                characters.AddRange(responseCharacter.Characters);
-                while (responseCharacter.Info.Next != null)
+                if (!_cache.TryGetValue(personName, out characters))
                 {
-                    responseCharacter = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>(responseCharacter.Info.Next);
+                    characters = new List<Character>();
+                    var responseCharacter = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>($"api/character/?name={personName}");
                     characters.AddRange(responseCharacter.Characters);
-                }
-                
-                responseEpisode = await httpClient.GetFromJsonAsync<MultipleResonseEpisode>($"api/episode/?name={episodeName}");
-                episodes.AddRange(responseEpisode.Episodes);
-                while (responseEpisode.Info.Next != null)
-                {
-                    responseEpisode = await httpClient.GetFromJsonAsync<MultipleResonseEpisode>(responseEpisode.Info.Next);
-                    episodes.AddRange(responseEpisode.Episodes);
+                    while (responseCharacter.Info.Next != null)
+                    {
+                        responseCharacter = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>(responseCharacter.Info.Next);
+                        characters.AddRange(responseCharacter.Characters);
+                    }
+                    _cache.Set(personName, characters,
+                   new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromMinutes(2)));
                 }
 
+                if (!_cache.TryGetValue(episodeName, out episodes))
+                {
+                    var responseEpisode = await httpClient.GetFromJsonAsync<MultipleResonseEpisode>($"api/episode/?name={episodeName}");
+                    episodes = new List<Episode>();
+                    episodes.AddRange(responseEpisode.Episodes);
+                    while (responseEpisode.Info.Next != null)
+                    {
+                        responseEpisode = await httpClient.GetFromJsonAsync<MultipleResonseEpisode>(responseEpisode.Info.Next);
+                        episodes.AddRange(responseEpisode.Episodes);
+                    }
+                    _cache.Set(episodeName, episodes,
+                  new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromMinutes(2)));
+                }
                 bool isCharacterInEpisode = DataHandler.IsCharacterInTheEpisode(characters, episodes);
                 return Ok(isCharacterInEpisode);
             }
@@ -67,6 +75,10 @@ namespace TestProject.Controllers
             {
                 return BadRequest("Invalid JSON.");
             }
+            catch (Exception ex)
+            {
+                return BadRequest("what is that?");
+            }
             return null;
         }
 
@@ -75,15 +87,26 @@ namespace TestProject.Controllers
         public async Task<IActionResult> GetPerson(string name)
         {
             var httpClient = _httpClientFactory.CreateClient("RickAndMorty");
+            List<Character> characters;
             try
             {
-                MultipleResponseCharacter response = new MultipleResponseCharacter();
-                response = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>($"api/character/?name={name}");
-                   
-                //якщо у нас один персонаж
-                if (response.Info.Count == 1)
+                if (!_cache.TryGetValue(name, out characters))
                 {
-                    Character character = response.Characters.First();
+                    characters = new List<Character>();
+                    var response = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>($"api/character/?name={name}");
+                    characters.AddRange(response.Characters);
+                    while (response.Info.Next != null)
+                    {
+                        response = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>(response.Info.Next);
+                        characters.AddRange(response.Characters);
+                    }
+                    _cache.Set(name, characters,
+                    new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromMinutes(2)));
+                }
+                //якщо у нас один персонаж
+                if (characters.Count == 1)
+                {
+                    Character character = characters.First();
                     string locationUrl = character.Origin.Url;
                     if (locationUrl == "")
                     {
@@ -97,19 +120,9 @@ namespace TestProject.Controllers
                     }
                 }
                 //якщо в нас багато персонажей
-                List<CharacterOriginResult> results = new List<CharacterOriginResult>();
-                List<Character> characters = new List<Character>();
-                characters.AddRange(response.Characters);
-
-                while (response.Info.Next != null)
-                {
-                    response = await httpClient.GetFromJsonAsync<MultipleResponseCharacter>(response.Info.Next);
-                    characters.AddRange(response.Characters);
-                }
-
-                    ParseLocationURL Parser = new ParseLocationURL();
-                    List<string> OriginURLs = Parser.GetOriginUrlListFromCharacters(characters);
-                    string locationsUrl = Parser.GetNewLocationsUrl(OriginURLs);
+                ParseLocationURL Parser = new ParseLocationURL();
+                List<string> OriginURLs = Parser.GetOriginUrlListFromCharacters(characters);
+                string locationsUrl = Parser.GetNewLocationsUrl(OriginURLs);
 
                     if (locationsUrl == "")
                     {
