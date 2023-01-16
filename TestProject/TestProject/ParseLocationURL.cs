@@ -30,7 +30,10 @@ namespace TestProject
                 if (url != "")
                 {
                     string locationId = Regex.Match(url, @"\d+").Value;
-                    LocationIDs.Add(locationId);
+                    if (!LocationIDs.Contains(locationId))
+                    {
+                        LocationIDs.Add(locationId);
+                    }
                 }
             }
             return LocationIDs;
